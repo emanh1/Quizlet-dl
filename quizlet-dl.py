@@ -3,11 +3,13 @@ from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
-import time, sys, os, json
+from selenium.webdriver.common.action_chains import ActionChains
 
+from bs4 import BeautifulSoup
 
+import time, sys, os, json, secrets
 
-def scrollDown(driver): #Scroll to load all the sets within a user page
+def scrollDown(driver: webdriver.Firefox): #Scroll to load all the sets within a user page
     last_height = driver.execute_script('return document.body.scrollHeight')
     while True:
         scrollTo = str(driver.execute_script('return document.body.scrollHeight')) #Scroll to the very bottom of the page
@@ -20,17 +22,18 @@ def scrollDown(driver): #Scroll to load all the sets within a user page
         last_height = new_height
 
 
-def scrapeUser(driver): #Scrapes an entire user page
+def scrapeUser(driver: webdriver.Firefox): #Scrapes an entire user page
     sets_raw = []
     sets = []
 
     #Get number of sets within page via the Xpath
-    numOfSets = driver.find_element_by_xpath('/html/body/div[3]/div[2]/div/div/section/div/div[1]/div/div/div/div/div[2]/div[2]/div/span[1]/span').text[9:-1]
+    
+    numOfSets = driver.find_element(By.XPATH, '/html/body/div[3]/div[2]/div/div/section/div/div[1]/div/div/div/div/div[2]/div[2]/div/span[1]/span').text[9:-1]
     numOfSets = int(numOfSets)
     
     while len(sets) != numOfSets: #Keep discovering sets until the number of sets discovered equals the number of sets stated at the top of the user page
-        for set_ in driver.find_elements_by_class_name('DashboardListItem'):
-            foo = set_.find_elements_by_class_name('UILink')[0]
+        for set_ in driver.find_elements(By.CLASS_NAME, 'DashboardListItem'):
+            foo = set_.find_elements(By.CLASS_NAME, 'UILink')[0]
             if foo not in sets_raw:
                 sets_raw.append(foo)
                 sets.append(foo.get_attribute('href'))
@@ -42,27 +45,28 @@ def scrapeUser(driver): #Scrapes an entire user page
         scrapeSet(driver)
 
 
-def scrapeSet(driver): #Scrape a single set of cards
-    driver.execute_script('window.scrollTo(0, 400)') #Scroll to *almost* the bottom. Needed to load the "see more" button
-
+def scrapeSet(driver: webdriver.Firefox): #Scrape a single set of cards
+    #driver.execute_script('window.scrollTo(0, 400)') #Scroll to *almost* the bottom. Needed to load the "see more" button
+    
     source = driver.page_source
     source = source[source.find('Terms in this set') + 19 : -1] #Manually find the # of cards within the set
     numOfCards = source[0:source.find(')')]                     #May be a better way to do this within Selenium, but the XPath appears
                                                                 #to change for each set, so this will work for now.
-
-    seeMore = driver.find_elements_by_class_name('SetPageTerms-seeMore')
+    
+    seeMore = driver.find_element(By.XPATH, "//span[text()='See more']")
     if seeMore: #If a "see more" button exists, click it
         print('I see the button')
-        seeMore[0].click()
+        driver.execute_script("arguments[0].scrollIntoView(true);", seeMore)
+        ActionChains(driver).move_to_element(seeMore).click().perform()
 
     #Add all terms and definitions to their corresponding list
     while True:
         try:
             terms, definitions = [], []
-            for term in driver.find_elements_by_class_name('SetPageTerm-wordText'):
-                terms.append(term.text)
-            for definition in driver.find_elements_by_class_name('SetPageTerm-definitionText'):
-                definitions.append(definition.text)
+            for entries in driver.find_elements(By.CLASS_NAME, 'SetPageTerms-term'):
+                spans = entries.find_elements(By.TAG_NAME, 'span')
+                terms.append(spans[1].text)
+                definitions.append(spans[3].text)
             break
         except:
             time.sleep(0.25)
@@ -77,9 +81,13 @@ def scrapeSet(driver): #Scrape a single set of cards
 
     saveCards(terms, definitions, driver)
 
-def saveCards(terms, definitions, driver):
-    title = driver.find_element_by_xpath('/html/body/div[3]/div[2]/div[1]/div[2]/div/div[1]/div[1]/div/div/div[1]/h1').text
-    user = driver.find_element_by_class_name('UserLink-username').text
+def saveCards(terms, definitions, driver: webdriver.Firefox):
+    try:
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        title = soup.find('h1').text
+    except:
+        title = f"{secrets.token_hex(16)}" #Fallback
+    user = driver.find_element(By.CLASS_NAME, 'UserLink-username').text
     id_ = driver.current_url.split('/')[-3]
 
     invalid_chars = ['/','\\',':','?','\"','<','>','|']
@@ -119,13 +127,11 @@ def saveCards(terms, definitions, driver):
 def main():
     try:
         opts = Options()
-        opts.headless = True
-        path = '\\'.join(os.path.realpath(__file__).split('\\')[0:-1])
-        driver = webdriver.Firefox(executable_path = path+'\\geckodriver.exe',
-                                   options=opts)
+        opts.add_argument("--headless")
+        driver = webdriver.Firefox(options=opts)
 
         driver.get(sys.argv[1])
-        if driver.find_elements_by_class_name('ProfileHeader-user'):
+        if driver.find_elements(By.CLASS_NAME, 'ProfileHeader-user'):
             scrapeUser(driver)
         else:
             scrapeSet(driver)
