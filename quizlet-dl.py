@@ -46,14 +46,21 @@ def scrapeUser(driver: webdriver.Firefox): #Scrapes an entire user page
 
 
 def scrapeSet(driver: webdriver.Firefox): #Scrape a single set of cards
-    #driver.execute_script('window.scrollTo(0, 400)') #Scroll to *almost* the bottom. Needed to load the "see more" button
-    
     source = driver.page_source
     source = source[source.find('Terms in this set') + 19 : -1] #Manually find the # of cards within the set
     numOfCards = source[0:source.find(')')]                     #May be a better way to do this within Selenium, but the XPath appears
                                                                 #to change for each set, so this will work for now.
     
-    seeMore = driver.find_element(By.XPATH, "//span[text()='See more']")
+    try:
+        # Try "See more" first
+        seeMore = driver.find_element(By.XPATH, "//span[contains(text(), 'See more')]")
+    except:
+        try:
+            # Try "See X more" pattern
+            seeMore = driver.find_element(By.XPATH, "//span[contains(text(), 'See') and contains(text(), 'more')]")
+        except:
+            seeMore = None
+    
     if seeMore: #If a "see more" button exists, click it
         print('I see the button')
         driver.execute_script("arguments[0].scrollIntoView(true);", seeMore)
